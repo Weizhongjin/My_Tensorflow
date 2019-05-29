@@ -173,3 +173,230 @@ tf.train.GradientDescentOptimizer
 tf.train.MomentumOptimizer
 ```
 
+
+
+#### 第四章 深层神经网络
+
+##### 线性模型的局限性
+
+线性模型只能解决线性可分问题，具有一定的局限性，使用Relu等激活子可以起到去线性化的作用。
+
+常用activation：
+
+```python
+tf.nn.relu
+tf.sigmoid
+tf.tanh
+```
+
+单层网络没有办法解决异或问题，加入隐藏层后的多层网络可以。
+
+##### 损失函数
+
+监督学习分为：分类问题与回归问题。
+
+###### 分类问题
+
+cross entropy反应两个概率分布之间的距离，用于分类问题
+
+多分类问题用softmax将输出变换为概率分布
+
+`v1*v2` tensorflow中 * 表示元素直接相乘， `tf.matmul`才是矩阵乘法。
+
+tf.reduce_mean 函数用于计算张量tensor沿着指定的数轴（tensor的某一维度）上的的平均值，主要用作降维或者计算tensor（图像）的平均值。
+
+```python
+
+reduce_mean(input_tensor,
+                axis=None,
+                keep_dims=False,
+                name=None)
+```
+
+第一个参数input_tensor： 输入的待降维的tensor;
+第二个参数axis： 指定的轴，如果不指定，则计算所有元素的均值;
+第三个参数keep_dims：是否降维度，设置为True，输出的结果保持输入tensor的形状，设置为False，输出结果会降低维度;
+第四个参数name： 操作的名称;
+
+
+
+对取softmax并用cross entropy作为损失函数的操作，tensorflow进行了合并使用库函数：
+
+`tf.nn.softmax_cross_entropy_with_logits( labels=y_ , logits=y )`
+
+###### 回归问题
+
+MSE使用较多
+
+MSE的定义为 `mse = tf.reduce_mean(tf.square(y_ - y))`
+
+
+
+##### 自定义损失函数
+
+ `tf.greater(v1,v2): v1>v2->true`
+
+`tf.where(tf.greater(v1,v2),v1,v2):v1>v2->v1`
+
+设立好自己的loss后
+
+在optimizer上使用minimize/maximize，example：
+
+`train_step = tf.train.AdamOptimizer(0.001).minimize(loss)`
+
+`sess.run(train_step)`
+
+
+
+##### 优化算法
+
+该书神经网络的训练框架遵循以下原则：
+
+```python
+import tensorflow as tf
+
+batch_size = n
+#每次读取一部分数据作为当前训练数据来执行反向传播算法
+x = tf.placeholder(tf.float32, shape = (batch_size,2), name = "x-input")
+y_ = tf.placeholder(tf.float32, shape = (batch_size,1), name = "y-input")
+
+learning_rate = 0.001
+loss = ...
+train_step = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+#参数初始化
+sess = tf.Session()
+init_op = tf.global_variables_initializer()
+sess.run(init_op)
+#迭代的更新参数
+STEPS = 5000
+for i in range(STEPS):
+    start = (i * batch_size) % dataset_size
+    end = min(start + batch_size, dataset_size)
+	#get current_X, current_Y
+    sess.run(train_step,feed_dict = {x: X[start:end], y_: Y[start:end]})
+	
+    if i % 1000 == 0 :
+        total_cross_entropy = sess.run(cross_entropy, feed_dict={x:X, y_:Y})
+
+    
+    print("After %d training step(s), cross entropy on all data is %g" %(i, total_cross_entropy))
+
+
+ 
+```
+
+###### Learning Rate
+
+可以使用 `tf.train.exponential_decay`可以指数级地减小学习率。example：
+
+```python
+global_step = tf.Variable(0)
+learing_rate = tf.train.exponential_decay(0.1, global_step, 100, 0.96,staircase = Ture)
+learning_step = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss, global_step = global_step)
+```
+
+`tf.train.exponential_decay(learning_rate, global_step, decay_steps, decay_rate, staircase=True/False)`
+
+decay_steps：衰减速度
+
+decay_rate: 衰减系数
+
+###### 正则项
+
+》在实践中，L1正则项和L2正则项可以同时使用，见P88
+
+`tf.contrib.layers.l1_regularizer(.5)(weights)`0.5为正则化项的权重。
+
+`tf.contrib.layers.l2_regularizer`
+
+样例代码：
+
+```python
+import tensorflow as tf
+def get_weights(shape, lamb) :
+    var = tf.Variable(tf.random_normal(shape), dtype = tf.float32)
+    tf.add_to_collection('losses',tf.contrib.layers.l2_regularizer(lamb)(var))
+    return var
+
+x = tf.placeholder(tf.float32, shape = (None, 2))
+y_ = tf.placeholder(tf.float32, shape = (None, 1))
+
+batch_size = 8
+layer_dimension = [2, 10, 10, 10, 1]
+n_layers = len(layer_dimension)
+cur_layer = x
+in_dimension = layer_dimension[0]
+
+for i in range(1, n_layers):
+    out_dimension = layer_dimension[i]
+    weights = get_weights([in_dimension, out_dimension], 0.001)
+    bias = tf.Variable(tf.constant(0.1, shape = [out_dimension]))
+    cur_layer = tf.nn.relu(tf.matmul(cur_layer, weights) + bias)
+    in_dimension = layer_dimension[i]
+
+mse_loss = tf.reduce_mean(tf.square(y_ - cur_layer))
+
+tf.add_to_collection('losses', mse_loss)
+
+loss = tf.add_n(tf.get_collection('losses'))
+```
+
+###### 滑动平均模型
+
+使模型在测试数据上更健壮的方法，滑动平均模型。
+
+对每一个变量会维护一个shadow variable
+
+shadow_variable = decay*shadow_variable + (1-decay) * variable
+
+decay 越大模型越趋于稳定，通常设为0.999或者0.9999。
+
+tf提供了 `tf.train.ExpoentialMovingAverage`来实现滑动平均模型。
+
+衰减率 = min{decay, (1+num_updates)/(10+num_updates)}
+
+样例代码：
+
+```python
+import tensorflow as tf
+
+v1 = tf.Variable(0, dtype = tf.float32)
+
+step = tf.Variable(0, trainable = False)
+
+ema = tf.train.ExponentialMovingAverage(0.99, step)
+
+maintain_average_op = ema.apply([v1])
+
+with tf.Session() as sess:
+    init_op = tf.global_variables_initializer()
+    sess.run(init_op)
+
+    print(sess.run([v1, ema.average(v1)]))
+	#初始化均为零
+    sess.run(tf.assign(v1, 5))
+    sess.run(maintain_average_op)
+    print(sess.run([v1, ema.average(v1)]))
+	#第一次，v1更新至5，decay= 1+0/10+0=0.1，小于0.99， v1被更新为4.5
+    sess.run(tf.assign(step, 1000))
+	#step = 1000 -》 decay = main（0.99，0.999）=0.99
+    sess.run(tf.assign(v1,10))
+
+    sess.run(maintain_average_op)
+	
+    print(sess.run([v1,ema.average(v1)]))
+	#v1更新至10，shadow更新至4.555
+    sess.run(maintain_average_op)
+
+    print(sess.run([v1,ema.average(v1)]))
+```
+
+输出：
+
+```
+[0.0, 0.0]
+[5.0, 4.5]
+[10.0, 4.555]
+[10.0, 4.60945]
+```
+
