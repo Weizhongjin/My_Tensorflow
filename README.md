@@ -400,3 +400,7 @@ with tf.Session() as sess:
 [10.0, 4.60945]
 ```
 
+
+
+#### 第五章 MNIST 数字识别问题
+
